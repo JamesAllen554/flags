@@ -1,0 +1,4 @@
+project:
+  type: default
+  resources:
+    - w2560/

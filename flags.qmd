@@ -1,0 +1,195 @@
+---
+title: "Flags: Color and Shape"
+format: html
+---
+
+Choose a flag, then compare it with others. The comparison samples each flag
+on a small grid and measures the difference in color at matching positions.
+It also includes a small penalty for differences in aspect ratio (width divided
+by height). Lower distances mean closer matches; this is a simple visual
+approximation, not a measure of cultural or historical similarity.
+
+```{r}
+#| echo: false
+flag_codes <- list.files("w2560", pattern = "\\.png$")
+ojs_define(flag_codes = sub("\\.png$", "", flag_codes))
+```
+
+```{ojs}
+//| echo: false
+regionNames = new Intl.DisplayNames(["en"], { type: "region" })
+```
+
+```{ojs}
+//| echo: false
+flagLabel = code => {
+  const fallback = code.toUpperCase()
+  try {
+    return regionNames.of(fallback) || fallback
+  } catch (error) {
+    if (error instanceof RangeError) return fallback
+    throw error
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+viewof selectedCode = Inputs.select(flag_codes, {
+  label: "Choose a flag",
+  value: "us",
+  format: flagLabel
+})
+```
+
+```{ojs}
+//| echo: false
+selectedFlag = flagLabel(selectedCode)
+```
+
+```{ojs}
+//| echo: false
+html`<figure class="selected-flag">
+  <img src=${`w2560/${selectedCode}.png`} alt="Flag of ${selectedFlag}">
+  <figcaption>${selectedFlag} (${selectedCode.toUpperCase()})</figcaption>
+</figure>`
+```
+
+```{ojs}
+//| echo: false
+viewof matchType = Inputs.radio(["Closest", "Most different"], {
+  label: "Find",
+  value: "Closest"
+})
+```
+
+```{ojs}
+//| echo: false
+loadFlag = code => new Promise((resolve, reject) => {
+  const image = new Image()
+  image.onload = () => {
+    try {
+      const canvas = document.createElement("canvas")
+      canvas.width = 24
+      canvas.height = 16
+      const context = canvas.getContext("2d")
+      if (!context) {
+        reject(new Error("Could not create a canvas to compare flags"))
+        return
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height)
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+      const ratio = image.naturalWidth / image.naturalHeight
+      image.removeAttribute("src")
+      resolve({ code, ratio, pixels })
+    } catch (error) {
+      reject(error)
+    }
+  }
+  image.onerror = () => reject(new Error(`Could not load ${code}.png`))
+  image.src = `w2560/${code}.png`
+})
+```
+
+```{ojs}
+//| echo: false
+flagFeatures = {
+  const features = []
+  for (let i = 0; i < flag_codes.length; i += 4) {
+    features.push(...await Promise.all(flag_codes.slice(i, i + 4).map(loadFlag)))
+  }
+  return features
+}
+```
+
+```{ojs}
+//| echo: false
+colorDistance = (first, second) => {
+  let squaredDifference = 0
+  for (let i = 0; i < first.pixels.length; i += 4) {
+    for (let channel = 0; channel < 3; channel += 1) {
+      const difference = first.pixels[i + channel] - second.pixels[i + channel]
+      squaredDifference += difference * difference
+    }
+  }
+  const colorSamples = first.pixels.length / 4 * 3
+  return Math.sqrt(squaredDifference / colorSamples) / 255
+}
+```
+
+```{ojs}
+//| echo: false
+referenceFlag = flagFeatures.find(item => item.code === selectedCode)
+```
+
+```{ojs}
+//| echo: false
+rankedMatches = flagFeatures
+  .filter(flag => flag.code !== selectedCode)
+  .map(flag => {
+    const colorDifference = colorDistance(referenceFlag, flag)
+    const shapeDifference = Math.abs(Math.log(referenceFlag.ratio / flag.ratio))
+    return { ...flag, distance: colorDifference + 0.25 * shapeDifference }
+  })
+  .sort((a, b) => matchType === "Closest"
+    ? a.distance - b.distance
+    : b.distance - a.distance)
+  .slice(0, 3)
+```
+
+```{ojs}
+//| echo: false
+html`<div class="flag-grid">
+  ${rankedMatches.map(flag => {
+    const label = flagLabel(flag.code)
+    return html`<figure class="match">
+      <img src=${`w2560/${flag.code}.png`} alt="Flag of ${label}">
+      <figcaption>
+        <strong>${label}</strong>
+        <span>Distance: ${flag.distance.toFixed(3)}</span>
+      </figcaption>
+    </figure>`
+  })}
+</div>`
+```
+
+<style>
+.selected-flag {
+  margin: 1.5rem 0 2rem;
+  text-align: center;
+}
+
+.selected-flag img {
+  max-width: min(100%, 800px);
+  max-height: 360px;
+  object-fit: contain;
+}
+
+.flag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.match {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+}
+
+.match img {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: contain;
+}
+
+.match figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+</style>
